@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Painel Logístico - Roteirização Completa</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f4f9; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1, h2, h3 { color: #333; }
+        .form-group { margin-bottom: 15px; }
+        button { background: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; font-size: 1rem; }
+        button:hover { background: #0056b3; }
+        .status { margin-top: 10px; font-weight: bold; font-size: 0.9rem; }
+        
+        #mapa { height: 450px; width: 100%; margin-top: 20px; border-radius: 8px; border: 1px solid #ccc; z-index: 1; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9rem; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; font-weight: bold; }
+        tr:hover { background-color: #f1f1f1; }
+        .badge { background: #ffc107; color: #000; padding: 4px 8px; border-radius: 12px; font-size: 0.8rem; }
+
+        .frota-grid { display: flex; gap: 20px; margin-top: 20px; flex-wrap: wrap; }
+        .frota-card { flex: 1; min-width: 300px; background: #fdfdfd; padding: 20px; border-radius: 8px; border: 1px solid #eee; }
+        .frota-card input, .frota-card select { width: 95%; padding: 10px; margin-bottom: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 1rem; }
+        
+        .painel-rota { background: #e9ecef; border-color: #ced4da; }
+        .btn-rota { background: #28a745; width: 100%; font-size: 1.1rem; font-weight: bold; padding: 15px; margin-top: 10px; }
+        .btn-rota:hover { background: #218838; }
+        .linha-selecao { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+        .linha-selecao select { margin-bottom: 0; flex: 1; }
+        .btn-editar { background: #ffc107; color: black; font-weight: bold; }
+        .btn-editar:hover { background: #e0a800; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>📦 Painel de Roteirização</h1>
+    
+    <div class="form-group">
+        <input type="file" id="arquivoXml" accept=".xml">
+        <button onclick="enviarXml()">Importar CT-e</button>
+        <span class="status" id="statusMsg"></span>
+    </div>
+    
+    <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+
+    <h2>🚛 Gestão de Frota</h2>
+    <div class="frota-grid">
+        <div class="frota-card" id="cardVeiculo">
+            <h3>Registo de Veículo</h3>
+            <input type="text" id="placaVeiculo" placeholder="Matrícula / Placa">
+            <input type="text" id="modeloVeiculo" placeholder="Modelo">
+            <input type="number" id="capPesoVeiculo" placeholder="Capacidade em Peso (KG)">
+            <input type="number" id="capVolVeiculo" placeholder="Capacidade em Volume (M³)">
+            <button id="btnGravarVeiculo" onclick="salvarVeiculo()" style="background: #17a2b8;">Gravar Veículo</button>
+            <button id="btnCancelarVeiculo" onclick="cancelarEdicaoVeiculo()" style="background: #dc3545; display: none;">Cancelar</button>
+            <div class="status" id="msgVeiculo"></div>
+        </div>
+
+        <div class="frota-card" id="cardMotorista">
+            <h3>Registo de Motorista</h3>
+            <input type="text" id="nomeMotorista" placeholder="Nome Completo">
+            <input type="text" id="cnhMotorista" placeholder="Nº da Carta de Condução">
+            <input type="text" id="telMotorista" placeholder="Telemóvel">
+            <button id="btnGravarMotorista" onclick="salvarMotorista()" style="background: #17a2b8;">Gravar Motorista</button>
+            <button id="btnCancelarMotorista" onclick="cancelarEdicaoMotorista()" style="background: #dc3545; display: none;">Cancelar</button>
+            <div class="status" id="msgMotorista"></div>
+        </div>
+    </div>
+
+    <hr style="border: 0; border-top: 1px solid #eee; margin: 30px 0;">
+
+    <h2>🗺️ Montagem da Viagem</h2>
+    <div class="frota-grid">
+        <div class="frota-card painel-rota">
+            <label><strong>1. Escolha o Veículo:</strong></label>
+            <div class="linha-selecao">
+                <select id="selectVeiculo"><option value="">A carregar veículos...</option></select>
+                <button class="btn-editar" onclick="prepararEdicaoVeiculo()">Editar</button>
+            </div>
+            
+            <label><strong>2. Escolha o Motorista:</strong></label>
+            <div class="linha-selecao">
+                <select id="selectMotorista"><option value="">A carregar motoristas...</option></select>
+                <button class="btn-editar" onclick="prepararEdicaoMotorista()">Editar</button>
+            </div>
+            
+            <button class="btn-rota" onclick="gerarRota()">Traçar Rota no Mapa</button>
+        </div>
+    </div>
+
+    <div id="mapa"></div>
+
+    <h2>CT-es Pendentes (Selecione a carga)</h2>
+    <table>
+        <thead>
+            <tr>
+                <th><input type="checkbox" id="checkTodos" onclick="alternarTodos(this)"></th>
+                <th>Status</th>
+                <th>Destinatário</th>
+                <th>NF-e</th>
+                <th>Peso (kg)</th>
+                <th>Frete (R$)</th>
+            </tr>
+        </thead>
+        <tbody id="tabelaCorpo">
+            <tr><td colspan="6" style="text-align: center;">A carregar dados...</td></tr>
+        </tbody>
+    </table>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    let mapa, grupoMarcadores, camadaRota;
+    
+    // Variáveis Globais para Edição
+    let veiculosCadastrados = [];
+    let motoristasCadastrados = [];
+    let idVeiculoEdicao = null;
+    let idMotoristaEdicao = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        mapa = L.map('mapa').setView([-22.9068, -43.1729], 9);
+        L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri'
+        }).addTo(mapa);
+        grupoMarcadores = L.featureGroup().addTo(mapa);
+        
+        carregarCtes();
+        carregarListasFrota();
+    });
+
+    async function carregarListasFrota() {
+        try {
+            const [resVeiculos, resMotoristas] = await Promise.all([
+                fetch('http://localhost:3000/api/frota/veiculos'),
+                fetch('http://localhost:3000/api/frota/motoristas')
+            ]);
+            
+            veiculosCadastrados = await resVeiculos.json();
+            motoristasCadastrados = await resMotoristas.json();
+
+            const selVeiculo = document.getElementById('selectVeiculo');
+            selVeiculo.innerHTML = '<option value="">-- Selecione o Veículo --</option>';
+            veiculosCadastrados.forEach(v => {
+                const opt = document.createElement('option');
+                opt.value = v.id;
+                opt.dataset.cap = v.capacidade_peso; 
+                opt.textContent = `${v.placa} - ${v.modelo} (Cap: ${v.capacidade_peso}kg / ${v.capacidade_vol}m³)`;
+                selVeiculo.appendChild(opt);
+            });
+
+            const selMotorista = document.getElementById('selectMotorista');
+            selMotorista.innerHTML = '<option value="">-- Selecione o Motorista --</option>';
+            motoristasCadastrados.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.id;
+                opt.textContent = `${m.nome} (CNH: ${m.cnh})`;
+                selMotorista.appendChild(opt);
+            });
+        } catch (erro) {
+            console.error("Erro ao carregar frota:", erro);
+        }
+    }
+
+    // --- FUNÇÕES DE EDIÇÃO DE FROTA ---
+    function prepararEdicaoVeiculo() {
+        const id = document.getElementById('selectVeiculo').value;
+        if(!id) return alert('Selecione um veículo na lista para editar.');
+        
+        const veiculo = veiculosCadastrados.find(v => v.id == id);
+        document.getElementById('placaVeiculo').value = veiculo.placa;
+        document.getElementById('modeloVeiculo').value = veiculo.modelo;
+        document.getElementById('capPesoVeiculo').value = veiculo.capacidade_peso;
+        document.getElementById('capVolVeiculo').value = veiculo.capacidade_vol;
+        
+        idVeiculoEdicao = id;
+        const btnGravar = document.getElementById('btnGravarVeiculo');
+        btnGravar.innerText = "Atualizar Veículo";
+        btnGravar.style.background = "#ffc107";
+        btnGravar.style.color = "black";
+        document.getElementById('btnCancelarVeiculo').style.display = "inline-block";
+        document.getElementById('cardVeiculo').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function cancelarEdicaoVeiculo() {
+        idVeiculoEdicao = null;
+        document.getElementById('placaVeiculo').value = '';
+        document.getElementById('modeloVeiculo').value = '';
+        document.getElementById('capPesoVeiculo').value = '';
+        document.getElementById('capVolVeiculo').value = '';
+        
+        const btnGravar = document.getElementById('btnGravarVeiculo');
+        btnGravar.innerText = "Gravar Veículo";
+        btnGravar.style.background = "#17a2b8";
+        btnGravar.style.color = "white";
+        document.getElementById('btnCancelarVeiculo').style.display = "none";
+    }
+
+    function prepararEdicaoMotorista() {
+        const id = document.getElementById('selectMotorista').value;
+        if(!id) return alert('Selecione um motorista na lista para editar.');
+        
+        const motorista = motoristasCadastrados.find(m => m.id == id);
+        document.getElementById('nomeMotorista').value = motorista.nome;
+        document.getElementById('cnhMotorista').value = motorista.cnh;
+        document.getElementById('telMotorista').value = motorista.telefone || '';
+        
+        idMotoristaEdicao = id;
+        const btnGravar = document.getElementById('btnGravarMotorista');
+        btnGravar.innerText = "Atualizar Motorista";
+        btnGravar.style.background = "#ffc107";
+        btnGravar.style.color = "black";
+        document.getElementById('btnCancelarMotorista').style.display = "inline-block";
+        document.getElementById('cardMotorista').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    function cancelarEdicaoMotorista() {
+        idMotoristaEdicao = null;
+        document.getElementById('nomeMotorista').value = '';
+        document.getElementById('cnhMotorista').value = '';
+        document.getElementById('telMotorista').value = '';
+        
+        const btnGravar = document.getElementById('btnGravarMotorista');
+        btnGravar.innerText = "Gravar Motorista";
+        btnGravar.style.background = "#17a2b8";
+        btnGravar.style.color = "white";
+        document.getElementById('btnCancelarMotorista').style.display = "none";
+    }
+
+    async function salvarVeiculo() {
+        const placa = document.getElementById('placaVeiculo').value;
+        const modelo = document.getElementById('modeloVeiculo').value;
+        const capacidade_peso = document.getElementById('capPesoVeiculo').value;
+        const capacidade_vol = document.getElementById('capVolVeiculo').value;
+        const msg = document.getElementById('msgVeiculo');
+        
+        if (!placa || !modelo) return msg.innerHTML = '<span style="color:red;">Preencha a matrícula e modelo!</span>';
+        
+        const metodo = idVeiculoEdicao ? 'PUT' : 'POST';
+        const url = idVeiculoEdicao 
+            ? `http://localhost:3000/api/frota/veiculos/${idVeiculoEdicao}` 
+            : 'http://localhost:3000/api/frota/veiculos';
+
+        try {
+            const res = await fetch(url, {
+                method: metodo, 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    placa, modelo, 
+                    capacidade_peso: parseFloat(capacidade_peso) || 0,
+                    capacidade_vol: parseFloat(capacidade_vol) || 0 
+                })
+            });
+            
+            if (res.ok) {
+                msg.innerHTML = '<span style="color:green;">' + (idVeiculoEdicao ? 'Atualizado!' : 'Guardado!') + '</span>';
+                cancelarEdicaoVeiculo();
+                carregarListasFrota(); 
+                setTimeout(() => msg.innerHTML = '', 3000);
+            } else {
+                msg.innerHTML = '<span style="color:red;">Erro ao guardar.</span>';
+            }
+        } catch (e) { msg.innerHTML = '<span style="color:red;">Falha de comunicação.</span>'; }
+    }
+
+    async function salvarMotorista() {
+        const nome = document.getElementById('nomeMotorista').value;
+        const cnh = document.getElementById('cnhMotorista').value;
+        const telefone = document.getElementById('telMotorista').value;
+        const msg = document.getElementById('msgMotorista');
+        
+        if (!nome || !cnh) return msg.innerHTML = '<span style="color:red;">Preencha o nome e a CNH!</span>';
+        
+        const metodo = idMotoristaEdicao ? 'PUT' : 'POST';
+        const url = idMotoristaEdicao 
+            ? `http://localhost:3000/api/frota/motoristas/${idMotoristaEdicao}` 
+            : 'http://localhost:3000/api/frota/motoristas';
+
+        try {
+            const res = await fetch(url, {
+                method: metodo, headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ nome, cnh, telefone })
+            });
+            if (res.ok) {
+                msg.innerHTML = '<span style="color:green;">' + (idMotoristaEdicao ? 'Atualizado!' : 'Guardado!') + '</span>';
+                cancelarEdicaoMotorista();
+                carregarListasFrota(); 
+                setTimeout(() => msg.innerHTML = '', 3000);
+            }
+        } catch (e) { msg.innerHTML = '<span style="color:red;">Falha de comunicação.</span>'; }
+    }
+
+    // --- FUNÇÕES DE ROTAS E CT-ES ---
+    async function carregarCtes() {
+        const tbody = document.getElementById('tabelaCorpo');
+        try {
+            const resposta = await fetch('http://localhost:3000/api/ctes');
+            const ctes = await resposta.json();
+            grupoMarcadores.clearLayers();
+            if (camadaRota) mapa.removeLayer(camadaRota);
+
+            if (ctes.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center;">Nenhum CT-e importado ainda.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = ''; 
+            
+            ctes.forEach(cte => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><input type="checkbox" class="check-cte" data-peso="${cte.peso}" data-lat="${cte.lat_entrega}" data-lng="${cte.lng_entrega}"></td>
+                    <td><span class="badge">Pendente</span></td>
+                    <td>${cte.destinatario}</td>
+                    <td>${cte.nota_fiscal}</td>
+                    <td>${cte.peso}</td>
+                    <td>${Number(cte.valor_cte).toFixed(2)}</td>
+                `;
+                tbody.appendChild(tr);
+
+                if (cte.lat_entrega && cte.lng_entrega) {
+                    const marcador = L.marker([cte.lat_entrega, cte.lng_entrega]);
+                    marcador.bindPopup(`<strong>${cte.destinatario}</strong><br>NF: ${cte.nota_fiscal}<br>Peso: ${cte.peso} kg`);
+                    grupoMarcadores.addLayer(marcador);
+                }
+            });
+
+            if (grupoMarcadores.getLayers().length > 0) {
+                mapa.fitBounds(grupoMarcadores.getBounds(), { padding: [50, 50] });
+            }
+        } catch (erro) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: red;">Erro ao carregar dados.</td></tr>';
+        }
+    }
+
+    function alternarTodos(source) {
+        const checkboxes = document.querySelectorAll('.check-cte');
+        checkboxes.forEach(chk => chk.checked = source.checked);
+    }
+
+    function gerarRota() {
+        const selecionados = document.querySelectorAll('.check-cte:checked');
+        const selectVeiculo = document.getElementById('selectVeiculo');
+        const selectMotorista = document.getElementById('selectMotorista');
+
+        if (selecionados.length === 0) return alert('Selecione pelo menos um CT-e na tabela de baixo!');
+        if (!selectVeiculo.value || !selectMotorista.value) return alert('Por favor, selecione um veículo e um motorista.');
+
+        let pesoTotal = 0;
+        const pontosRota = [];
+
+        selecionados.forEach(chk => {
+            pesoTotal += parseFloat(chk.dataset.peso || 0);
+            const lat = parseFloat(chk.dataset.lat);
+            const lng = parseFloat(chk.dataset.lng);
+            if (lat && lng) pontosRota.push([lat, lng]);
+        });
+
+        const capacidadeVeiculo = parseFloat(selectVeiculo.options[selectVeiculo.selectedIndex].dataset.cap);
+        
+        // NOVA LÓGICA DE PESO: Apenas Informativo com Confirmação
+        if (pesoTotal > capacidadeVeiculo) {
+            const continuar = confirm(`INFORMATIVO DE EXCESSO:\n\nO peso da carga (${pesoTotal.toFixed(2)} kg) excede a capacidade registada do veículo (${capacidadeVeiculo} kg).\n\nDeseja prosseguir com a viagem mesmo assim?`);
+            if (!continuar) {
+                return; // O utilizador clicou em Cancelar
+            }
+        }
+
+        grupoMarcadores.clearLayers();
+        if (camadaRota) mapa.removeLayer(camadaRota);
+
+        pontosRota.forEach(ponto => L.marker(ponto).addTo(grupoMarcadores));
+        
+        if (pontosRota.length > 1) {
+            camadaRota = L.polyline(pontosRota, {color: 'red', weight: 4, dashArray: '10, 10'}).addTo(mapa);
+        } else if (pontosRota.length === 1) {
+            alert('Apenas uma entrega selecionada. O marcador está isolado, mas a viagem foi aprovada.');
+        }
+
+        if (grupoMarcadores.getLayers().length > 0) {
+            mapa.fitBounds(grupoMarcadores.getBounds(), { padding: [50, 50] });
+        }
+        
+        alert(`Viagem aprovada com Sucesso!\nVeículo: ${selectVeiculo.options[selectVeiculo.selectedIndex].text}\nPeso Total: ${pesoTotal.toFixed(2)} kg`);
+    }
+
+    async function enviarXml() {
+        const inputArquivo = document.getElementById('arquivoXml');
+        const statusMsg = document.getElementById('statusMsg');
+        if (inputArquivo.files.length === 0) return statusMsg.innerText = 'Selecione um XML!';
+        statusMsg.style.color = 'blue'; statusMsg.innerText = 'A importar...';
+        const formData = new FormData(); formData.append('arquivo', inputArquivo.files[0]);
+        try {
+            const res = await fetch('http://localhost:3000/api/ctes/importar', { method: 'POST', body: formData });
+            const dados = await res.json();
+            if (res.ok) { statusMsg.style.color = 'green'; statusMsg.innerText = 'Sucesso!'; inputArquivo.value = ''; carregarCtes(); }
+            else { statusMsg.style.color = 'red'; statusMsg.innerText = `Erro: ${dados.erro}`; }
+        } catch (e) { statusMsg.style.color = 'red'; statusMsg.innerText = 'Erro.'; }
+    }
+</script>
+
+</body>
+</html>
